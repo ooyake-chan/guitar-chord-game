@@ -1,0 +1,6 @@
+# ローカル開発用の設定・OS/エディタの生成物
+.claude/
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.tmp
