@@ -72,7 +72,7 @@ button.danger{background:#5a2a2a;}
 #a-next{margin-top:14px; color:var(--sub); font-size:14px;}
 #a-next button{margin-left:12px;}
 #meter{height:10px; background:var(--panel2); border-radius:5px; overflow:hidden; margin-top:18px;}
-#meterfill{height:100%; width:0%; background:linear-gradient(90deg,#4caf7d,#e8b04b); transition:width .08s linear;}
+#meterfill{height:100%; width:0%; background:linear-gradient(90deg,#4caf7d 0%,#4caf7d 45%,#e8b04b 72%,#e05d5d 92%); transition:width .08s linear;}
 .meter-label{font-size:11px; color:var(--sub); margin-top:4px; text-align:center;}
 
 /* ---- settings ---- */
@@ -107,7 +107,7 @@ th:first-child,td:first-child{text-align:left;}
 #err-msg{color:var(--ng); font-size:13px; margin-top:10px; text-align:center; white-space:pre-wrap;}
 .chip.note{width:auto; min-width:34px; padding:0 10px;}
 #test-meter{height:14px; background:var(--panel2); border-radius:7px; overflow:hidden; margin-top:8px;}
-#test-meterfill{height:100%; width:0%; background:linear-gradient(90deg,#4caf7d,#e8b04b); transition:width .07s linear;}
+#test-meterfill{height:100%; width:0%; background:linear-gradient(90deg,#4caf7d 0%,#4caf7d 45%,#e8b04b 72%,#e05d5d 92%); transition:width .07s linear;}
 
 /* ---- reference ---- */
 .ref-controls{display:flex; gap:10px; align-items:center; margin-bottom:14px; flex-wrap:wrap; font-size:14px;}
@@ -218,7 +218,11 @@ tr.clickable:hover td{background:rgba(232,176,75,.08);}
       <select id="set-device"><option value="">既定のデバイス</option></select>
     </div>
     <div class="set-row">
-      <label>入力テスト<span class="hint">選んだデバイスで音を拾えるか確認</span></label>
+      <label>入力ゲイン<span class="hint">エレキ生音など弱い信号を底上げ。テストしながら調整</span></label>
+      <span><span id="gain-val"></span>× <input type="range" id="set-gain" min="1" max="30" step="1"></span>
+    </div>
+    <div class="set-row">
+      <label>入力テスト<span class="hint">緑〜黄が振れればOK。赤(振り切れ)は下げる</span></label>
       <button class="small" id="btn-mictest">テスト開始</button>
     </div>
     <div id="test-meter" style="display:none"><div id="test-meterfill"></div></div>
@@ -510,7 +514,7 @@ const SCALE_LEGEND_HTML =
 ===================================================== */
 const DEFAULT_SETTINGS = {
   chordRange:1, scaleRange:1, chordTime:10, scaleTime:20, answerTime:3,
-  weak:false, sens:5, keyMode:'random', keyRoot:0, deviceId:'', chordTiers:{}, scaleTiers:{}
+  weak:false, sens:5, keyMode:'random', keyRoot:0, deviceId:'', inputGain:4, chordTiers:{}, scaleTiers:{}
 };
 let settings = loadJSON('cg_settings_v1', DEFAULT_SETTINGS);
 settings = Object.assign({}, DEFAULT_SETTINGS, settings);
@@ -626,13 +630,16 @@ function scaleSequence(pat){
 /* =====================================================
    オーディオ（マイク・クロマ・ピッチ検出）
 ===================================================== */
-let actx=null, micStream=null, analyserF=null, analyserT=null;
+let actx=null, micStream=null, analyserF=null, analyserT=null, micGain=null;
 let freqData=null, timeData=null;
 
 function stopAudio(){
   if(micStream){ micStream.getTracks().forEach(t=>t.stop()); micStream=null; }
   if(actx){ try{actx.close();}catch(e){} actx=null; }
-  analyserF=analyserT=null;
+  analyserF=analyserT=null; micGain=null;
+}
+function applyInputGain(){   // 設定変更を即反映
+  if(micGain) micGain.gain.value = settings.inputGain;
 }
 async function initAudio(){
   if(actx && micStream) return true;
@@ -642,9 +649,11 @@ async function initAudio(){
     micStream = await navigator.mediaDevices.getUserMedia({audio});
     actx = new (window.AudioContext||window.webkitAudioContext)();
     const src = actx.createMediaStreamSource(micStream);
+    micGain = actx.createGain(); micGain.gain.value = settings.inputGain;  // デジタル入力ゲイン
+    src.connect(micGain);
     analyserF = actx.createAnalyser(); analyserF.fftSize = 8192; analyserF.smoothingTimeConstant = 0.7;
     analyserT = actx.createAnalyser(); analyserT.fftSize = 2048; analyserT.smoothingTimeConstant = 0;
-    src.connect(analyserF); src.connect(analyserT);
+    micGain.connect(analyserF); micGain.connect(analyserT);
     freqData = new Float32Array(analyserF.frequencyBinCount);
     timeData = new Float32Array(analyserT.fftSize);
     return true;
@@ -1016,7 +1025,7 @@ function practiceLoop(){
     $('timerfill').style.width = Math.max(0, 100*(1 - elapsed/prac.timeLimit)) + '%';
     if(elapsed >= prac.timeLimit){ finishQuestion(false); return; }
     if(elapsed < 350) return; // 出題直後の残響を無視
-    const GATE = 0.006;
+    const GATE = 0.003;       // ノイズゲート（入力ゲインで底上げ済みの信号に対して）
     if(prac.mode==='c'){
       const chroma = rms >= GATE ? computeChroma() : null;
       // 構成音インジケータ更新（検出後しばらく点灯を保持）
@@ -1117,6 +1126,8 @@ function initSettingsUI(){
   $('set-weak').checked = settings.weak;
   $('set-sens').value = settings.sens;
   $('sens-val').textContent = settings.sens;
+  $('set-gain').value = settings.inputGain;
+  $('gain-val').textContent = settings.inputGain;
   renderTierEditor('tier-chords', QUALITIES, 'c');
   renderTierEditor('tier-scales', SCALES, 's');
 }
@@ -1176,6 +1187,7 @@ function bindSettings(){
   $('set-answer-time').addEventListener('change', e=>{ settings.answerTime=Math.max(1,Number(e.target.value)||3); saveSettings(); });
   $('set-weak').addEventListener('change', e=>{ settings.weak=e.target.checked; saveSettings(); });
   $('set-sens').addEventListener('input', e=>{ settings.sens=Number(e.target.value); $('sens-val').textContent=settings.sens; saveSettings(); });
+  $('set-gain').addEventListener('input', e=>{ settings.inputGain=Number(e.target.value); $('gain-val').textContent=settings.inputGain; applyInputGain(); saveSettings(); });
   $('btn-export').addEventListener('click', ()=>{
     const blob = new Blob([JSON.stringify({stats, settings}, null, 1)], {type:'application/json'});
     const a = document.createElement('a');

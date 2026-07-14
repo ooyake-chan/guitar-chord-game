@@ -1,7 +1,7 @@
 /* Chord & Scale Trainer - Service Worker
    キャッシュ優先で全アセットを端末に保存し、完全オフライン動作を可能にする。
    アプリを更新したら CACHE の版番号を上げること（古いキャッシュは activate で自動削除）。 */
-const CACHE = 'cs-trainer-v1';
+const CACHE = 'cs-trainer-v2';
 const ASSETS = [
   './',
   './index.html',
