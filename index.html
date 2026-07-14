@@ -514,7 +514,7 @@ const SCALE_LEGEND_HTML =
 ===================================================== */
 const DEFAULT_SETTINGS = {
   chordRange:1, scaleRange:1, chordTime:10, scaleTime:20, answerTime:3,
-  weak:false, sens:5, keyMode:'random', keyRoot:0, deviceId:'', inputGain:4, chordTiers:{}, scaleTiers:{}
+  weak:false, sens:5, keyMode:'random', keyRoot:0, deviceId:'', inputGain:6, chordTiers:{}, scaleTiers:{}
 };
 let settings = loadJSON('cg_settings_v1', DEFAULT_SETTINGS);
 settings = Object.assign({}, DEFAULT_SETTINGS, settings);
@@ -692,16 +692,31 @@ function computeChroma(){
   return chroma.map(v=>Math.max(0, v-med));
 }
 
+// 必須音＝ガイドトーンのみ（ルート＋3rd/sus＋7th/6th）。テンションや5thは要求しない
+// → 弱い生音や省略ボイシングでも当たりやすく、maj/min/domの区別は保つ
+function requiredTones(tones){
+  const set = new Set(tones);
+  const req = [0];
+  if(set.has(4)) req.push(4); else if(set.has(3)) req.push(3); else if(set.has(5)) req.push(5); // 3度/sus
+  if(set.has(11)) req.push(11);            // maj7
+  else if(set.has(10)) req.push(10);       // ♭7
+  else if(set.has(9)) req.push(9);         // 6th / dim°7
+  return req;
+}
+
+// 構成音の存在しきい値（最大成分に対する割合）。弱い生音でも通るよう低め
+function presenceTh(max, sens){ return (0.02 + 0.008*sens) * max; }  // sens5 → 0.06×max
+
 // クロマ判定：required=必須PC配列, allowed=構成音PC配列
 function judgeChroma(chroma, required, allowed, sens){
   const total = chroma.reduce((a,b)=>a+b, 0);
   if(total <= 1e-12) return false;
   const max = Math.max(...chroma);
-  const presTh = (0.04 + 0.012*sens) * max;      // sens5 → 0.10×max
+  const presTh = presenceTh(max, sens);
   for(const pc of required){ if(chroma[pc] < presTh) return false; }
   let allowedE = 0;
   for(const pc of allowed) allowedE += chroma[pc];
-  const purityTh = 0.38 + 0.036*sens;             // sens5 → 0.56
+  const purityTh = 0.28 + 0.03*sens;              // sens5 → 0.43（弱信号でも通りやすく）
   return (allowedE/total) >= purityTh;
 }
 
@@ -953,7 +968,7 @@ function nextQuestion(){
     const v = strIdx===0 ? it.def.v6 : it.def.v5;
     q.voicing = v;
     q.frets = voicingFrets(v, strIdx, it.root);
-    q.required = it.def.tones.filter(t=>t!==7).map(t=>(it.root+t)%12);
+    q.required = requiredTones(it.def.tones).map(t=>(it.root+t)%12);
     q.allowed  = it.def.tones.map(t=>(it.root+t)%12);
     $('q-name').innerHTML = esc(NOTES[it.root]) + '<span class="qual">' + esc(it.def.disp) + '</span>';
   }else{
@@ -1030,7 +1045,7 @@ function practiceLoop(){
       const chroma = rms >= GATE ? computeChroma() : null;
       // 構成音インジケータ更新（検出後しばらく点灯を保持）
       const max = chroma ? Math.max(...chroma) : 0;
-      const presTh = (0.04 + 0.012*settings.sens) * max;
+      const presTh = presenceTh(max, settings.sens);
       q.allowed.forEach(pc=>{
         if(chroma && max > 0 && chroma[pc] >= presTh) q.toneHold[pc] = 6;
         else if(q.toneHold[pc] > 0) q.toneHold[pc]--;
@@ -1039,7 +1054,7 @@ function practiceLoop(){
       if(!chroma){ q.stable = 0; return; }
       if(judgeChroma(chroma, q.required, q.allowed, settings.sens)){
         q.stable++;
-        if(q.stable >= 4) finishQuestion(true); // 約0.3秒安定で正解
+        if(q.stable >= 3) finishQuestion(true); // 約0.24秒安定で正解
       }else q.stable = 0;
     }else{
       if(rms < GATE){ q.silence = true; q.pcStreak = 0; return; }
@@ -1371,7 +1386,7 @@ window.__dbg = {QUALITIES, SCALES, NOTES, OPEN, voicingFrets, buildScalePattern,
                 scaleSequence, judgeChroma, buildPool, pickQuestion,
                 chordDiagramSVG, scaleFretboardSVG, tierOf, laplaceAcc,
                 circleOfFifthsSVG, funcOf, ROMAN,
-                scaleBoxSVG, roleOf, SCALE_ROLES};
+                scaleBoxSVG, roleOf, SCALE_ROLES, requiredTones, judgeChroma, presenceTh};
 </script>
 <script>
 // PWA: Service Worker 登録（オフライン起動用）。file:// では無効なので握りつぶす
